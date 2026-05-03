@@ -68,9 +68,9 @@ tl.store(y_ptr + offsets, x, mask=mask)
 
 实操：
 
-- [ ] 写 2D copy kernel
-- [ ] 写 transpose kernel
-- [ ] 写 row-wise add kernel
+- [x] 写 2D copy kernel
+- [x] 写 transpose kernel
+- [x] 写 row-wise add kernel
 
 核心模式：
 

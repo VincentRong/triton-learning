@@ -8,7 +8,7 @@
 - 工作目录：`/home/rwenxiao/dev-learning/Triton`
 - 学习计划：`PLAND.md`
 - 展开材料：`guidelines/`
-- 当前阶段：elementwise kernel 入门
+- 当前阶段：二维 memory / stride 入门
 
 ## 记录规则
 
@@ -71,10 +71,10 @@
 
   | block size | Triton ms | PyTorch ms | speedup | GB/s |
   | --- | ---: | ---: | ---: | ---: |
-  | 256 | 0.0453 | 0.0361 | 0.80 | 277.85 |
-  | 512 | 0.0362 | 0.0384 | 1.06 | 347.36 |
-  | 1024 | 0.0376 | 0.0382 | 1.02 | 334.83 |
-  | 2048 | 0.0358 | 0.0355 | 0.99 | 351.58 |
+  | 256 | 0.0375 | 0.0362 | 0.96 | 335.66 |
+  | 512 | 0.0367 | 0.0354 | 0.96 | 343.07 |
+  | 1024 | 0.0357 | 0.0354 | 0.99 | 352.07 |
+  | 2048 | 0.0362 | 0.0352 | 0.97 | 347.17 |
 
 - 学习要点：
   - 一个 Triton program 处理一块 offsets。
@@ -83,6 +83,38 @@
   - `tl.arange` 生成的是 program 内的向量化逻辑位置，不是简单等同于 CUDA thread id。
   - elementwise 通常是 memory-bound，因为每个元素计算很少，但要读写 global memory。
   - 单个简单 elementwise kernel 不一定明显快过 PyTorch；Triton 的常见优势来自 fusion，把多个读写内存的步骤合成一次 kernel launch 和一次内存往返。
+
+- 完成二维 memory / stride 练习：
+  - `copy_2d(x)`
+  - `transpose(x)`
+  - `rowwise_add(x, bias)`
+- `copy_2d` 支持非连续 2D view，通过显式传入 `x.stride(0)` 和 `x.stride(1)` 做地址计算。
+- correctness 测试增加到：
+
+  ```text
+  31 passed in 9.85s
+  ```
+
+- 完成 2D op benchmark，shape `(1024, 1024)`，dtype `float32`：
+
+  | op | block | Triton ms | PyTorch ms | speedup | GB/s |
+  | --- | --- | ---: | ---: | ---: | ---: |
+  | copy_2d | 16x16 | 0.0278 | 0.0261 | 0.94 | 302.13 |
+  | transpose | 16x16 | 0.0271 | 0.0363 | 1.34 | 309.42 |
+  | rowwise_add | 16x16 | 0.0273 | 0.0272 | 1.00 | 461.43 |
+  | copy_2d | 16x32 | 0.0276 | 0.0260 | 0.94 | 304.18 |
+  | transpose | 16x32 | 0.0264 | 0.0334 | 1.26 | 317.46 |
+  | rowwise_add | 16x32 | 0.0260 | 0.0273 | 1.05 | 483.52 |
+  | copy_2d | 32x32 | 0.0257 | 0.0262 | 1.02 | 326.26 |
+  | transpose | 32x32 | 0.0250 | 0.0337 | 1.35 | 335.52 |
+  | rowwise_add | 32x32 | 0.0259 | 0.0274 | 1.06 | 486.22 |
+
+- 学习要点：
+  - 二维 Tensor 地址一般是 `base + row * stride_0 + col * stride_1`。
+  - `offs_m[:, None]` 和 `offs_n[None, :]` 会广播成一个 `BLOCK_M x BLOCK_N` tile。
+  - shape 只描述逻辑维度，stride 才描述内存布局。
+  - contiguous row-major tensor 的 `stride` 通常是 `(N, 1)`；转置 view 的 stride 可能变成 `(1, M)`。
+  - transpose 改变读写方向，容易导致 load 或 store 其中一侧访存不连续。
 
 ## 环境记录
 
@@ -97,9 +129,9 @@
 
 ## 下一步
 
-1. 提交并推送今天的 elementwise 代码与记录。
-2. 继续 `guidelines/04_memory_stride_2d.md`。
-3. 实现 2D copy、transpose、row-wise add。
+1. 提交并推送二维 memory / stride 代码与记录。
+2. 继续 `guidelines/05_reduction_softmax_layernorm.md`。
+3. 实现 row-wise sum、max、mean。
 4. 每完成一个 kernel，同步更新：
    - `PROGRESS.md`
    - `triton-kernels-lab/README.md`
