@@ -45,10 +45,10 @@ tl.store(y_ptr + offsets, x, mask=mask)
 
 实操：
 
-- [ ] 写 `vector_add`
-- [ ] 改成 `vector_mul`
-- [ ] 改成 `y = a * x + b`
-- [ ] 对比 PyTorch 速度
+- [x] 写 `vector_add`
+- [x] 改成 `vector_mul`
+- [x] 改成 `y = a * x + b`
+- [x] 对比 PyTorch 速度
 
 你需要能回答：
 
@@ -188,11 +188,11 @@ y = (x - mean) * rstd * gamma + beta
 
 实操：
 
-- [ ] 用 `torch.testing.assert_close`
-- [ ] 用 `triton.testing.do_bench`
-- [ ] 计算 GB/s
-- [ ] 跑不同 shape
-- [ ] 记录性能表
+- [x] 用 `torch.testing.assert_close`
+- [x] 用 `triton.testing.do_bench`
+- [x] 计算 GB/s
+- [x] 跑不同 shape
+- [x] 记录性能表
 
 示例：
 

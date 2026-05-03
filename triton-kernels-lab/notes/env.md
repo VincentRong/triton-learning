@@ -20,4 +20,10 @@ Command:
 /home/rwenxiao/pytorch-cuda/bin/python -m pytest -q
 ```
 
-Result: pending.
+Result:
+
+```text
+3 passed in 3.83s
+```
+
+Note: GPU tests need to run in an environment that can access the NVIDIA driver.

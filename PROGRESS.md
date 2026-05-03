@@ -8,7 +8,7 @@
 - 工作目录：`/home/rwenxiao/dev-learning/Triton`
 - 学习计划：`PLAND.md`
 - 展开材料：`guidelines/`
-- 当前阶段：环境检查与项目结构搭建
+- 当前阶段：elementwise kernel 入门
 
 ## 记录规则
 
@@ -45,6 +45,45 @@
 - 已安装 `pytest` 到 `/home/rwenxiao/pytorch-cuda` 环境。
 - 注意：在普通沙盒中运行 `pytest` 时看不到 NVIDIA driver，GPU smoke test 失败；需要在允许访问 GPU 的环境中重跑。
 
+### 2026-05-03
+
+- 已将本地 Triton 学习目录初始化为 git 仓库并推送到 GitHub：
+  - `https://github.com/VincentRong/triton-learning`
+- 环境 smoke test 已在可访问 GPU 的环境中通过：
+
+  ```text
+  3 passed in 3.83s
+  ```
+
+- 完成第一组 elementwise kernels：
+  - `vector_add(a, b)`
+  - `vector_mul(a, b)`
+  - `vector_affine(x, scale, bias)`
+- 新增 correctness 测试：
+  - shape 覆盖 `(1024,)`、`(1000,)`、`(1_000_000,)`、`(1024, 1024)`。
+  - 测试结果：
+
+  ```text
+  15 passed in 4.25s
+  ```
+
+- 完成 `vector_add` benchmark，并与 PyTorch `a + b` 对比。shape `(1024, 1024)`，dtype `float32`：
+
+  | block size | Triton ms | PyTorch ms | speedup | GB/s |
+  | --- | ---: | ---: | ---: | ---: |
+  | 256 | 0.0453 | 0.0361 | 0.80 | 277.85 |
+  | 512 | 0.0362 | 0.0384 | 1.06 | 347.36 |
+  | 1024 | 0.0376 | 0.0382 | 1.02 | 334.83 |
+  | 2048 | 0.0358 | 0.0355 | 0.99 | 351.58 |
+
+- 学习要点：
+  - 一个 Triton program 处理一块 offsets。
+  - `grid = (ceil(n / BLOCK_SIZE),)` 决定 program 数量。
+  - `mask = offsets < n` 保护最后一个 block 的越界访问。
+  - `tl.arange` 生成的是 program 内的向量化逻辑位置，不是简单等同于 CUDA thread id。
+  - elementwise 通常是 memory-bound，因为每个元素计算很少，但要读写 global memory。
+  - 单个简单 elementwise kernel 不一定明显快过 PyTorch；Triton 的常见优势来自 fusion，把多个读写内存的步骤合成一次 kernel launch 和一次内存往返。
+
 ## 环境记录
 
 待完成：
@@ -54,19 +93,13 @@
 - [x] 记录 PyTorch 版本和 CUDA 可用性。
 - [x] 记录 Triton 版本。
 - [x] 创建或确认 `triton-kernels-lab/`。
-- [ ] 在可访问 GPU driver 的环境中运行最小环境测试。
+- [x] 在可访问 GPU driver 的环境中运行最小环境测试。
 
 ## 下一步
 
-1. 在可访问 GPU 的环境中重跑：
-
-   ```bash
-   cd /home/rwenxiao/dev-learning/Triton/triton-kernels-lab
-   /home/rwenxiao/pytorch-cuda/bin/python -m pytest -q
-   ```
-
-2. 如果 smoke test 通过，开始 `guidelines/02_triton_basics.md`。
-3. 实现第一个 kernel：`vector_add`。
+1. 提交并推送今天的 elementwise 代码与记录。
+2. 继续 `guidelines/04_memory_stride_2d.md`。
+3. 实现 2D copy、transpose、row-wise add。
 4. 每完成一个 kernel，同步更新：
    - `PROGRESS.md`
    - `triton-kernels-lab/README.md`
