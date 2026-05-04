@@ -8,7 +8,7 @@
 - 工作目录：`/home/rwenxiao/dev-learning/Triton`
 - 学习计划：`PLAND.md`
 - 展开材料：`guidelines/`
-- 当前阶段：二维 memory / stride 入门
+- 当前阶段：reduction / softmax / LayerNorm 入门
 
 ## 记录规则
 
@@ -116,6 +116,46 @@
   - contiguous row-major tensor 的 `stride` 通常是 `(N, 1)`；转置 view 的 stride 可能变成 `(1, M)`。
   - transpose 改变读写方向，容易导致 load 或 store 其中一侧访存不连续。
 
+- 完成 reduction / softmax / LayerNorm 练习：
+  - `row_sum(x)`
+  - `row_max(x)`
+  - `row_mean(x)`
+  - `softmax(x)`
+  - `layernorm(x, gamma, beta)`
+- correctness 测试增加到：
+
+  ```text
+  47 passed in 3.25s
+  ```
+
+- 修复一个 LayerNorm padding bug：
+  - 问题：`N=768` 时 `BLOCK_N=1024`，越界 lane load 成 `0.0`。
+  - mean 阶段没问题，因为 sum 后除以真实 `N`。
+  - var 阶段如果直接 `diff = x - mean`，越界 lane 会变成 `0 - mean`，污染方差。
+  - 修复：`diff = tl.where(mask, x - mean, 0.0)`。
+
+- reduction benchmark，shape `(1024, 1024)`，dtype `float32`：
+
+  | op | Triton ms | PyTorch ms | speedup | GB/s |
+  | --- | ---: | ---: | ---: | ---: |
+  | row_sum | 0.0196 | 0.0192 | 0.98 | 214.74 |
+  | row_max | 0.0179 | 0.0201 | 1.13 | 234.82 |
+  | row_mean | 0.0179 | 0.0194 | 1.08 | 234.51 |
+
+- softmax / LayerNorm benchmark，dtype `float32`：
+
+  | op | shape | Triton ms | PyTorch ms | speedup |
+  | --- | --- | ---: | ---: | ---: |
+  | softmax | 512x2048 | 0.0241 | 0.0252 | 1.04 |
+  | layernorm | 32x1024 | 0.0060 | 0.0078 | 1.32 |
+
+- 学习要点：
+  - reduction 比 elementwise 多了“行内聚合”步骤，一个 program 先 load 一整行，再用 `tl.sum` 或 `tl.max` 压成标量。
+  - `sum/mean` 的越界 lane 用 `other=0.0`。
+  - `max` 的越界 lane 必须用 `other=-float("inf")`，否则全负数输入会错。
+  - softmax 先减 row max，避免 `exp` 溢出。
+  - LayerNorm 的 mean/var 建议 fp32 计算。
+
 ## 环境记录
 
 待完成：
@@ -129,9 +169,9 @@
 
 ## 下一步
 
-1. 提交并推送二维 memory / stride 代码与记录。
-2. 继续 `guidelines/05_reduction_softmax_layernorm.md`。
-3. 实现 row-wise sum、max、mean。
+1. 提交并推送 reduction / softmax / LayerNorm 代码与记录。
+2. 继续 `guidelines/06_matmul_and_fusion.md`。
+3. 实现 matmul baseline。
 4. 每完成一个 kernel，同步更新：
    - `PROGRESS.md`
    - `triton-kernels-lab/README.md`

@@ -1,6 +1,16 @@
 import pytest
 import torch
 
+from kernels.layernorm import layernorm, reference_layernorm
+from kernels.reductions import (
+    reference_row_max,
+    reference_row_mean,
+    reference_row_sum,
+    row_max,
+    row_mean,
+    row_sum,
+)
+from kernels.softmax import reference_softmax, softmax
 from kernels.vector_add import (
     reference_add,
     reference_affine,
@@ -110,3 +120,86 @@ def test_rowwise_add(shape):
     expected = reference_rowwise_add(x, bias)
 
     torch.testing.assert_close(actual, expected)
+
+
+REDUCTION_SHAPES = [
+    (4, 16),
+    (128, 1024),
+    (1023, 777),
+]
+
+
+@pytest.mark.parametrize("shape", REDUCTION_SHAPES)
+def test_row_sum(shape):
+    x = torch.randn(shape, device="cuda")
+
+    actual = row_sum(x)
+    expected = reference_row_sum(x)
+
+    torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-5)
+
+
+@pytest.mark.parametrize("shape", REDUCTION_SHAPES)
+def test_row_max(shape):
+    x = torch.randn(shape, device="cuda") - 10.0
+
+    actual = row_max(x)
+    expected = reference_row_max(x)
+
+    torch.testing.assert_close(actual, expected)
+
+
+@pytest.mark.parametrize("shape", REDUCTION_SHAPES)
+def test_row_mean(shape):
+    x = torch.randn(shape, device="cuda")
+
+    actual = row_mean(x)
+    expected = reference_row_mean(x)
+
+    torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-5)
+
+
+SOFTMAX_SHAPES = [
+    (16, 128),
+    (128, 1024),
+    (512, 2048),
+]
+
+
+@pytest.mark.parametrize("shape", SOFTMAX_SHAPES)
+def test_softmax(shape):
+    x = torch.randn(shape, device="cuda")
+
+    actual = softmax(x)
+    expected = reference_softmax(x)
+
+    torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-5)
+
+
+def test_softmax_large_values_are_stable():
+    x = torch.randn((32, 1024), device="cuda") * 20.0 + 1000.0
+
+    actual = softmax(x)
+    expected = reference_softmax(x)
+
+    assert torch.isfinite(actual).all()
+    torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-5)
+
+
+LAYERNORM_SHAPES = [
+    (32, 768),
+    (32, 1024),
+    (16, 4096),
+]
+
+
+@pytest.mark.parametrize("shape", LAYERNORM_SHAPES)
+def test_layernorm(shape):
+    x = torch.randn(shape, device="cuda")
+    gamma = torch.randn((shape[1],), device="cuda")
+    beta = torch.randn((shape[1],), device="cuda")
+
+    actual = layernorm(x, gamma, beta)
+    expected = reference_layernorm(x, gamma, beta)
+
+    torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-5)

@@ -1,6 +1,9 @@
 import torch
 import triton
 
+from kernels.layernorm import layernorm
+from kernels.reductions import row_max, row_mean, row_sum
+from kernels.softmax import softmax
 from kernels.transpose import copy_2d, rowwise_add, transpose
 from kernels.vector_add import vector_add
 
@@ -50,6 +53,55 @@ def benchmark_2d_ops() -> None:
             )
 
 
+def benchmark_reductions() -> None:
+    shape = (1024, 1024)
+    x = torch.randn(shape, device="cuda")
+
+    print()
+    print("reductions")
+    print("op,shape,dtype,triton_ms,pytorch_ms,speedup,gbps")
+    benches = [
+        ("row_sum", lambda: row_sum(x), lambda: torch.sum(x, dim=1), 1),
+        ("row_max", lambda: row_max(x), lambda: torch.max(x, dim=1).values, 1),
+        ("row_mean", lambda: row_mean(x), lambda: torch.mean(x, dim=1), 1),
+    ]
+    for name, triton_fn, torch_fn, read_factor in benches:
+        triton_ms = triton.testing.do_bench(triton_fn)
+        pytorch_ms = triton.testing.do_bench(torch_fn)
+        bytes_moved = x.numel() * x.element_size() * read_factor + x.shape[0] * x.element_size()
+        gbps = bytes_moved / (triton_ms * 1e-3) / 1e9
+        speedup = pytorch_ms / triton_ms
+        print(f"{name},{shape},{x.dtype},{triton_ms:.4f},{pytorch_ms:.4f},{speedup:.2f},{gbps:.2f}")
+
+
+def benchmark_softmax_layernorm() -> None:
+    softmax_shape = (512, 2048)
+    x_softmax = torch.randn(softmax_shape, device="cuda")
+
+    print()
+    print("softmax")
+    print("shape,dtype,triton_ms,pytorch_ms,speedup")
+    triton_ms = triton.testing.do_bench(lambda: softmax(x_softmax))
+    pytorch_ms = triton.testing.do_bench(lambda: torch.softmax(x_softmax, dim=-1))
+    print(f"{softmax_shape},{x_softmax.dtype},{triton_ms:.4f},{pytorch_ms:.4f},{pytorch_ms / triton_ms:.2f}")
+
+    layernorm_shape = (32, 1024)
+    x_layernorm = torch.randn(layernorm_shape, device="cuda")
+    gamma = torch.randn((layernorm_shape[1],), device="cuda")
+    beta = torch.randn((layernorm_shape[1],), device="cuda")
+
+    print()
+    print("layernorm")
+    print("shape,dtype,triton_ms,pytorch_ms,speedup")
+    triton_ms = triton.testing.do_bench(lambda: layernorm(x_layernorm, gamma, beta))
+    pytorch_ms = triton.testing.do_bench(
+        lambda: torch.nn.functional.layer_norm(x_layernorm, (layernorm_shape[1],), gamma, beta)
+    )
+    print(f"{layernorm_shape},{x_layernorm.dtype},{triton_ms:.4f},{pytorch_ms:.4f},{pytorch_ms / triton_ms:.2f}")
+
+
 if __name__ == "__main__":
     benchmark_vector_add()
     benchmark_2d_ops()
+    benchmark_reductions()
+    benchmark_softmax_layernorm()

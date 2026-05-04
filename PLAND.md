@@ -94,6 +94,11 @@ x = tl.load(ptrs, mask=mask, other=0.0)
 - transpose 为什么容易慢？
 - 非连续 tensor 怎么处理？
 
+
+见解：
+- 感觉 Triton 就是不管thread，隐藏了block的细节（一维或二维或怎样），但是对于数值写入对应的地址，需要将输入/输出的地址好好计算成线性（1D），然后load/store。有时候虽然看起来读入写出都是在同样shape进行，但是在定址时做手脚，实现了运算（比如说transpose时就给地址做一个运算映射）
+- 因为 Titon 只管 block 本身，不管细节，所以程序它只需要给到运算目标 [BLOCK_M, BLOCK_N]，就可以。
+
 ### 13:30 - 15:00：Reduction 算子
 
 学习目标：
@@ -105,10 +110,10 @@ x = tl.load(ptrs, mask=mask, other=0.0)
 
 实操：
 
-- [ ] `row_sum`
-- [ ] `row_max`
-- [ ] `row_mean`
-- [ ] 对比 `torch.sum(x, dim=1)`
+- [x] `row_sum`
+- [x] `row_max`
+- [x] `row_mean`
+- [x] 对比 `torch.sum(x, dim=1)`
 
 核心模式：
 
@@ -145,9 +150,9 @@ tl.store(out_ptr + row, s)
 
 实操：
 
-- [ ] 写 row-wise softmax
-- [ ] 写 LayerNorm forward
-- [ ] 对比 PyTorch 结果和速度
+- [x] 写 row-wise softmax
+- [x] 写 LayerNorm forward
+- [x] 对比 PyTorch 结果和速度
 - [ ] 尝试不同 `BLOCK_SIZE`
 
 Softmax 核心逻辑：
