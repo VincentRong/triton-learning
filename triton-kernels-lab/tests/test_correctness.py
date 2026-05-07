@@ -1,7 +1,9 @@
 import pytest
 import torch
 
+from kernels.fused_matmul import matmul_bias_relu, reference_matmul_bias_relu
 from kernels.layernorm import layernorm, reference_layernorm
+from kernels.matmul import matmul, reference_matmul
 from kernels.reductions import (
     reference_row_max,
     reference_row_mean,
@@ -203,3 +205,33 @@ def test_layernorm(shape):
     expected = reference_layernorm(x, gamma, beta)
 
     torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-5)
+
+
+MATMUL_SHAPES = [
+    (16, 16, 16),
+    (64, 96, 128),
+    (127, 129, 65),
+]
+
+
+@pytest.mark.parametrize("M,N,K", MATMUL_SHAPES)
+def test_matmul(M, N, K):
+    a = torch.randn((M, K), device="cuda", dtype=torch.float16)
+    b = torch.randn((K, N), device="cuda", dtype=torch.float16)
+
+    actual = matmul(a, b)
+    expected = reference_matmul(a, b)
+
+    torch.testing.assert_close(actual, expected, rtol=1e-2, atol=1e-1)
+
+
+@pytest.mark.parametrize("M,N,K", MATMUL_SHAPES)
+def test_matmul_bias_relu(M, N, K):
+    a = torch.randn((M, K), device="cuda", dtype=torch.float16)
+    b = torch.randn((K, N), device="cuda", dtype=torch.float16)
+    bias = torch.randn((N,), device="cuda", dtype=torch.float32)
+
+    actual = matmul_bias_relu(a, b, bias)
+    expected = reference_matmul_bias_relu(a, b, bias)
+
+    torch.testing.assert_close(actual, expected, rtol=1e-2, atol=1e-1)

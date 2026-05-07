@@ -24,6 +24,10 @@ See `notes/env.md`.
   - `softmax(x)`
 - `kernels/layernorm.py`
   - `layernorm(x, gamma, beta)`
+- `kernels/matmul.py`
+  - `matmul(a, b)`
+- `kernels/fused_matmul.py`
+  - `matmul_bias_relu(a, b, bias)`
 
 ## Correctness
 
@@ -36,7 +40,7 @@ Run tests with:
 Current result:
 
 ```text
-47 passed in 3.25s
+53 passed in 7.82s
 ```
 
 ## Benchmarks
@@ -85,6 +89,29 @@ Current softmax and LayerNorm results on RTX 3070, dtype `float32`:
 | softmax | 512x2048 | 0.0241 | 0.0252 | 1.04 |
 | layernorm | 32x1024 | 0.0060 | 0.0078 | 1.32 |
 
+Current matmul results on RTX 3070, dtype `float16` input and `float32` output:
+
+| shape | config | Triton ms | PyTorch ms | speedup | TFLOPS |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 256x256x256 | 32x64x32/w4 | 0.0093 | 0.0092 | 1.00 | 3.61 |
+| 256x256x256 | 64x64x32/w4 | 0.0091 | 0.0092 | 1.01 | 3.67 |
+| 256x256x256 | 64x128x32/w4 | 0.0105 | 0.0092 | 0.88 | 3.20 |
+| 512x1024x2048 | 32x64x32/w4 | 0.0648 | 0.1158 | 1.79 | 33.12 |
+| 512x1024x2048 | 64x64x32/w4 | 0.0648 | 0.1158 | 1.79 | 33.12 |
+| 512x1024x2048 | 64x128x32/w4 | 0.0839 | 0.1158 | 1.38 | 25.60 |
+| 1024x1024x1024 | 32x64x32/w4 | 0.0666 | 0.0860 | 1.29 | 32.22 |
+| 1024x1024x1024 | 64x64x32/w4 | 0.0612 | 0.0860 | 1.41 | 35.11 |
+| 1024x1024x1024 | 64x128x32/w4 | 0.0614 | 0.0860 | 1.40 | 34.95 |
+| 1024x4096x4096 | 32x64x32/w4 | 1.8313 | 0.9575 | 0.52 | 18.76 |
+| 1024x4096x4096 | 64x64x32/w4 | 1.2644 | 0.9575 | 0.76 | 27.18 |
+| 1024x4096x4096 | 64x128x32/w4 | 1.0383 | 0.9575 | 0.92 | 33.09 |
+
+Current fused matmul + bias + ReLU result:
+
+| shape | Triton ms | PyTorch separate ms | speedup | TFLOPS |
+| --- | ---: | ---: | ---: | ---: |
+| 1024x1024x1024 | 0.0658 | 0.1426 | 2.17 | 32.64 |
+
 ## Optimization Notes
 
 `vector_add` is memory-bound: it reads two tensors and writes one tensor for only one arithmetic operation per element. In this test, Triton is roughly tied with PyTorch because PyTorch's simple elementwise kernel is already highly optimized. Triton's larger advantage usually appears when multiple elementwise operations are fused into one kernel.
@@ -93,6 +120,8 @@ For 2D kernels, the key pattern is computing addresses with `row * stride_0 + co
 
 For row-wise reductions, this project uses the simple one-program-per-row pattern. `BLOCK_N` must cover the full row. Use `other=0.0` for sum/mean padding and `other=-inf` for max padding. LayerNorm also needs masked `diff` during variance, otherwise padded lanes pollute the variance when `N` is not a power of two.
 
+For matmul, one program computes one `BLOCK_M x BLOCK_N` output tile. It loops over K in `BLOCK_K` chunks, loads A and B tiles, and accumulates with `tl.dot` into fp32. The baseline is competitive on medium shapes, but the wide `1024x4096x4096` case shows why grouped ordering and autotune matter.
+
 ## Interview Summary
 
 For elementwise kernels, describe one Triton program processing one contiguous block of elements. `tl.arange` builds offsets inside that block, `grid` controls how many programs are launched, and `mask` protects the tail when `numel` is not divisible by `BLOCK_SIZE`.
@@ -100,3 +129,5 @@ For elementwise kernels, describe one Triton program processing one contiguous b
 For 2D kernels, explain that `offs_m[:, None]` and `offs_n[None, :]` broadcast into a tile of addresses. Strides must be passed explicitly for non-contiguous tensors. Transpose changes the access direction, so at least one side of load/store can become less coalesced.
 
 For softmax and LayerNorm, describe them as reduction plus broadcast. Softmax subtracts row max before `exp` for numerical stability. LayerNorm computes mean and variance in fp32, then broadcasts `rstd`, `gamma`, and `beta` across the row.
+
+For matmul, explain tiling as data reuse: each A/B tile is loaded once and reused for multiple multiply-accumulate operations inside the output tile. Fusion is valuable when post-matmul operations like bias and ReLU would otherwise require extra global memory reads/writes and kernel launches.

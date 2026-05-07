@@ -8,7 +8,7 @@
 - 工作目录：`/home/rwenxiao/dev-learning/Triton`
 - 学习计划：`PLAND.md`
 - 展开材料：`guidelines/`
-- 当前阶段：reduction / softmax / LayerNorm 入门
+- 当前阶段：matmul baseline 与 fused matmul 入门
 
 ## 记录规则
 
@@ -156,6 +156,54 @@
   - softmax 先减 row max，避免 `exp` 溢出。
   - LayerNorm 的 mean/var 建议 fp32 计算。
 
+### 2026-05-07
+
+- 完成 matmul / fused matmul 练习：
+  - `matmul(a, b)`
+  - `matmul_bias_relu(a, b, bias)`
+- 设计选择：
+  - 输入 `a` / `b` 使用 `float16`。
+  - accumulator 使用 `float32`。
+  - 输出使用 `float32`，便于观察 fp32 accumulate。
+  - 一个 Triton program 计算一个 `BLOCK_M x BLOCK_N` 的 C tile。
+  - 沿 K 维用 `BLOCK_K` 分块循环累加。
+- correctness 测试增加到：
+
+  ```text
+  53 passed in 7.82s
+  ```
+
+- matmul benchmark，输入 dtype `float16`，输出 dtype `float32`：
+
+  | shape | config | Triton ms | PyTorch ms | speedup | TFLOPS |
+  | --- | --- | ---: | ---: | ---: | ---: |
+  | 256x256x256 | 32x64x32/w4 | 0.0093 | 0.0092 | 1.00 | 3.61 |
+  | 256x256x256 | 64x64x32/w4 | 0.0091 | 0.0092 | 1.01 | 3.67 |
+  | 256x256x256 | 64x128x32/w4 | 0.0105 | 0.0092 | 0.88 | 3.20 |
+  | 512x1024x2048 | 32x64x32/w4 | 0.0648 | 0.1158 | 1.79 | 33.12 |
+  | 512x1024x2048 | 64x64x32/w4 | 0.0648 | 0.1158 | 1.79 | 33.12 |
+  | 512x1024x2048 | 64x128x32/w4 | 0.0839 | 0.1158 | 1.38 | 25.60 |
+  | 1024x1024x1024 | 32x64x32/w4 | 0.0666 | 0.0860 | 1.29 | 32.22 |
+  | 1024x1024x1024 | 64x64x32/w4 | 0.0612 | 0.0860 | 1.41 | 35.11 |
+  | 1024x1024x1024 | 64x128x32/w4 | 0.0614 | 0.0860 | 1.40 | 34.95 |
+  | 1024x4096x4096 | 32x64x32/w4 | 1.8313 | 0.9575 | 0.52 | 18.76 |
+  | 1024x4096x4096 | 64x64x32/w4 | 1.2644 | 0.9575 | 0.76 | 27.18 |
+  | 1024x4096x4096 | 64x128x32/w4 | 1.0383 | 0.9575 | 0.92 | 33.09 |
+
+- fused matmul + bias + ReLU benchmark：
+
+  | shape | Triton ms | PyTorch separate ms | speedup | TFLOPS |
+  | --- | ---: | ---: | ---: | ---: |
+  | 1024x1024x1024 | 0.0658 | 0.1426 | 2.17 | 32.64 |
+
+- 学习要点：
+  - matmul 是 compute-bound 代表，优化重点从“少读写”转向“tile 复用”和 tensor core 利用率。
+  - 一个 program 负责 C 的一个 tile，K 维循环加载 A/B tile。
+  - `tl.dot(a, b)` 做 tile 级矩阵乘加，fp16 输入时通常走高效矩阵指令并 fp32 accumulate。
+  - K 尾块必须 mask，否则任意 K 会错。
+  - fused bias + ReLU 快很多，因为省掉了额外 kernel launch 和中间 C 的读写。
+  - 大宽矩阵仍落后 PyTorch，下一步需要 grouped ordering 和 autotune。
+
 ## 环境记录
 
 待完成：
@@ -169,9 +217,10 @@
 
 ## 下一步
 
-1. 提交并推送 reduction / softmax / LayerNorm 代码与记录。
-2. 继续 `guidelines/06_matmul_and_fusion.md`。
-3. 实现 matmul baseline。
+1. 提交并推送 matmul / fused matmul baseline 代码与记录。
+2. 给 matmul 加 grouped ordering。
+3. 添加 `@triton.autotune` 配置。
+4. 对比 grouped / autotune 后的 benchmark。
 4. 每完成一个 kernel，同步更新：
    - `PROGRESS.md`
    - `triton-kernels-lab/README.md`

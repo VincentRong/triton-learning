@@ -2,6 +2,8 @@ import torch
 import triton
 
 from kernels.layernorm import layernorm
+from kernels.fused_matmul import matmul_bias_relu
+from kernels.matmul import matmul
 from kernels.reductions import row_max, row_mean, row_sum
 from kernels.softmax import softmax
 from kernels.transpose import copy_2d, rowwise_add, transpose
@@ -100,8 +102,57 @@ def benchmark_softmax_layernorm() -> None:
     print(f"{layernorm_shape},{x_layernorm.dtype},{triton_ms:.4f},{pytorch_ms:.4f},{pytorch_ms / triton_ms:.2f}")
 
 
+def benchmark_matmul() -> None:
+    shapes = [
+        (256, 256, 256),
+        (512, 1024, 2048),
+        (1024, 1024, 1024),
+        (1024, 4096, 4096),
+    ]
+    configs = [
+        (32, 64, 32, 4),
+        (64, 64, 32, 4),
+        (64, 128, 32, 4),
+    ]
+
+    print()
+    print("matmul")
+    print("shape,config,triton_ms,pytorch_ms,speedup,tflops")
+    for M, N, K in shapes:
+        a = torch.randn((M, K), device="cuda", dtype=torch.float16)
+        b = torch.randn((K, N), device="cuda", dtype=torch.float16)
+        pytorch_ms = triton.testing.do_bench(lambda: a @ b)
+        for block_m, block_n, block_k, num_warps in configs:
+            triton_ms = triton.testing.do_bench(
+                lambda: matmul(a, b, block_m, block_n, block_k, num_warps)
+            )
+            flops = 2 * M * N * K
+            tflops = flops / (triton_ms * 1e-3) / 1e12
+            speedup = pytorch_ms / triton_ms
+            config = f"{block_m}x{block_n}x{block_k}/w{num_warps}"
+            print(f"{M}x{N}x{K},{config},{triton_ms:.4f},{pytorch_ms:.4f},{speedup:.2f},{tflops:.2f}")
+
+
+def benchmark_fused_matmul() -> None:
+    M, N, K = 1024, 1024, 1024
+    a = torch.randn((M, K), device="cuda", dtype=torch.float16)
+    b = torch.randn((K, N), device="cuda", dtype=torch.float16)
+    bias = torch.randn((N,), device="cuda", dtype=torch.float32)
+
+    print()
+    print("fused_matmul_bias_relu")
+    print("shape,triton_ms,pytorch_ms,speedup,tflops")
+    triton_ms = triton.testing.do_bench(lambda: matmul_bias_relu(a, b, bias))
+    pytorch_ms = triton.testing.do_bench(lambda: torch.relu((a @ b).float() + bias))
+    flops = 2 * M * N * K
+    tflops = flops / (triton_ms * 1e-3) / 1e12
+    print(f"{M}x{N}x{K},{triton_ms:.4f},{pytorch_ms:.4f},{pytorch_ms / triton_ms:.2f},{tflops:.2f}")
+
+
 if __name__ == "__main__":
     benchmark_vector_add()
     benchmark_2d_ops()
     benchmark_reductions()
     benchmark_softmax_layernorm()
+    benchmark_matmul()
+    benchmark_fused_matmul()

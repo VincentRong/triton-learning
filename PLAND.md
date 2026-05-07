@@ -97,7 +97,7 @@ x = tl.load(ptrs, mask=mask, other=0.0)
 
 见解：
 - 感觉 Triton 就是不管thread，隐藏了block的细节（一维或二维或怎样），但是对于数值写入对应的地址，需要将输入/输出的地址好好计算成线性（1D），然后load/store。有时候虽然看起来读入写出都是在同样shape进行，但是在定址时做手脚，实现了运算（比如说transpose时就给地址做一个运算映射）
-- 因为 Titon 只管 block 本身，不管细节，所以程序它只需要给到运算目标 [BLOCK_M, BLOCK_N]，就可以。
+- 因为 Titon 只管 block 本身，在block里面用 计算目标size 的 [BLOCK_M, BLOCK_N]计算好目标位置即可。
 
 ### 13:30 - 15:00：Reduction 算子
 
@@ -208,12 +208,12 @@ gbps = x.numel() * x.element_size() * 2 / ms / 1e6
 
 Day 1 最终作品：
 
-- [ ] `vector_add.py`
-- [ ] `transpose.py`
-- [ ] `row_reduction.py`
-- [ ] `softmax.py`
-- [ ] `layernorm.py`
-- [ ] `benchmark.py`
+- [x] `vector_add.py`
+- [x] `transpose.py`
+- [x] `row_reduction.py`
+- [x] `softmax.py`
+- [x] `layernorm.py`
+- [x] `benchmark.py`
 
 ---
 
@@ -254,14 +254,14 @@ for k in range(0, K, BLOCK_K):
 
 实操：
 
-- [ ] 写 naive matmul
-- [ ] 支持任意 M / N / K
-- [ ] 支持 fp16 输入、fp32 累加
-- [ ] 对比 `torch.matmul`
+- [x] 写 naive matmul
+- [x] 支持任意 M / N / K
+- [x] 支持 fp16 输入、fp32 累加
+- [x] 对比 `torch.matmul`
 - [ ] 尝试 `16x16x32`
 - [ ] 尝试 `32x32x32`
-- [ ] 尝试 `32x64x32`
-- [ ] 尝试 `64x64x32`
+- [x] 尝试 `32x64x32`
+- [x] 尝试 `64x64x32`
 
 面试重点：
 
@@ -290,7 +290,7 @@ for k in range(0, K, BLOCK_K):
 
 - [ ] 给 matmul 加 grouped ordering
 - [ ] 使用 `@triton.autotune`
-- [ ] benchmark 不同配置
+- [x] benchmark 不同配置
 
 你需要能讲清：
 
@@ -308,12 +308,12 @@ for k in range(0, K, BLOCK_K):
 
 实操：
 
-- [ ] `matmul + bias`
-- [ ] `matmul + bias + relu`
+- [x] `matmul + bias`
+- [x] `matmul + bias + relu`
 - [ ] `matmul + bias + gelu`
-- [ ] 对比 PyTorch 分开执行
+- [x] 对比 PyTorch 分开执行
 - [ ] 对比 PyTorch `torch.compile`
-- [ ] 对比 Triton fused kernel
+- [x] 对比 Triton fused kernel
 
 核心思路：
 
